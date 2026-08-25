@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="EximNova — preliminary trade opportunity screening and evidence-led trade workflow." />
     <title>EximNova</title>
+    <style>
+      /* EximNova approved brand treatment: EN monogram + orbital trajectory, deep navy / gold / white. */
+      .brand-mark{position:relative;display:grid!important;place-items:center;width:36px!important;height:36px!important;border-radius:50%!important;background:#0d172c!important;color:#fff!important;font-size:0!important;font-weight:900!important;letter-spacing:-.08em!important;overflow:visible!important;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
+      .brand-mark::before{content:'EN';font-size:11px;line-height:1;color:#fff;letter-spacing:-.08em;position:relative;z-index:2}
+      .brand-mark::after{content:'';position:absolute;inset:-4px -7px;border:2px solid #d9a441;border-left-color:transparent;border-right-color:transparent;border-radius:50%;transform:rotate(-22deg);z-index:1}
+      .brand span:last-child{font-weight:850;letter-spacing:-.035em;background:linear-gradient(90deg,#fff 0 42%,#d9a441 42% 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+      .auth-panel .brand span:last-child{background:linear-gradient(90deg,#14213d 0 42%,#b07d20 42% 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+    </style>
   </head>
   <body>
     <div id="root"></div>
