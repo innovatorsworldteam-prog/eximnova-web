@@ -7,7 +7,7 @@ const STORAGE_KEY = 'eximnova_token';
 
 async function api(path, options = {}) {
   const token = localStorage.getItem(STORAGE_KEY);
-  const headers = { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(options.headers || {}) };
+  const headers = { ...(options.body instanceof FormData || options.body instanceof ArrayBuffer ? {} : { 'Content-Type': 'application/json' }), ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const text = await res.text();
@@ -21,6 +21,10 @@ const navItems = ['Overview', 'Businesses', 'Requirements', 'Opportunities', 'Co
 const emptyData = { businesses: [], requirements: [], opportunities: [], counterparties: [], dealgate: [], evidence: [], verification: [] };
 const routes = { businesses: '/api/businesses', requirements: '/api/requirements', opportunities: '/api/opportunities', counterparties: '/api/counterparties', dealgate: '/api/dealgate', evidence: '/api/evidence', verification: '/api/verification' };
 
+function Brand({ large = false }) {
+  return <div className={`brand ${large ? 'large' : ''}`} aria-label="EximNova"><span className="brand-word">Exim<span>Nova</span></span></div>;
+}
+
 function Auth({ onAuth }) {
   const [mode, setMode] = useState('login'); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const submit = async e => {
@@ -32,7 +36,7 @@ function Auth({ onAuth }) {
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
   return <div className="auth-shell"><div className="auth-panel">
-    <div className="brand large"><span className="brand-mark">E</span><span>EximNova</span></div>
+    <Brand large />
     <div className="eyebrow">TRADE INTELLIGENCE ENGINE</div><h1>{mode === 'login' ? 'Sign in to EximNova' : 'Create your EximNova account'}</h1>
     <p className="muted">Secure access to your trade workflow, evidence and preliminary screening.</p>
     <form onSubmit={submit} className="form"><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email" /></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} minLength="8" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>{error && <div className="error">{error}</div>}<button disabled={busy}>{busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}</button></form>
@@ -40,8 +44,98 @@ function Auth({ onAuth }) {
   </div></div>;
 }
 
+const formConfigs = {
+  Businesses: {
+    endpoint: '/api/businesses', title: 'Add Business', fields: [
+      ['legal_name','Legal business name','text',true], ['brand_name','Brand / trading name','text'], ['entity_type','Entity type','select',false,['Proprietorship','Partnership','LLP','Private Limited','Public Limited','Other']], ['established_year','Established year','number'], ['gstin','GSTIN','text'], ['iec','IEC','text'], ['description','Description','textarea']
+    ]
+  },
+  Requirements: {
+    endpoint: '/api/requirements', title: 'Add Requirement', fields: [
+      ['side','Side','select',true,['BUY','SELL']], ['product','Product / commodity','text',true], ['business_id','Business','select'], ['quantity','Quantity','text'], ['origin','Origin','text'], ['destination','Destination','text'], ['delivery_window','Delivery window','text'], ['payment_terms','Payment terms','text'], ['price_terms','Price terms','text'], ['notes','Notes','textarea']
+    ]
+  },
+  Opportunities: {
+    endpoint: '/api/opportunities', title: 'Add Opportunity', fields: [
+      ['side','Side','select',true,['BUY','SELL']], ['product','Product / commodity','text',true], ['requirement_id','Source requirement','select'], ['quantity','Quantity','text'], ['route','Route','text'], ['summary','Summary','textarea'], ['visibility','Visibility','select',false,['public','private']]
+    ]
+  },
+  Counterparties: {
+    endpoint: '/api/counterparties', title: 'Add Counterparty', fields: [
+      ['name','Counterparty name','text',true], ['business_id','Linked business','select'], ['country','Country','text'], ['counterparty_type','Type','select',false,['buyer','supplier','broker','other']], ['notes','Notes','textarea']
+    ]
+  },
+  DealGate: {
+    endpoint: '/api/dealgate', title: 'New DealGate Case', fields: [
+      ['scope','Screening scope','textarea',true], ['opportunity_id','Opportunity','select'], ['counterparty_id','Counterparty','select'], ['disclaimer_ack','I understand DealGate is preliminary screening, not a transaction guarantee','checkbox',true]
+    ]
+  },
+  Verification: {
+    endpoint: '/api/verification', title: 'New Verification Case', fields: [
+      ['scope','Verification scope','textarea',true], ['counterparty_id','Counterparty','select'], ['summary','Initial summary','textarea']
+    ]
+  }
+};
+
+function optionLabel(item, type) {
+  if (!item) return '';
+  if (type === 'business_id') return item.brand_name || item.legal_name || item.id;
+  if (type === 'requirement_id') return `${item.side || ''} · ${item.product || item.id}`;
+  if (type === 'opportunity_id') return `${item.side || ''} · ${item.product || item.id}`;
+  if (type === 'counterparty_id') return item.name || item.id;
+  return item.name || item.title || item.id;
+}
+
+function Modal({ config, data, onClose, onCreated, setError }) {
+  const [values, setValues] = useState(() => Object.fromEntries(config.fields.map(([key,,type,required]) => [key, type === 'checkbox' ? false : type === 'select' && required === false ? '' : ''])));
+  const [busy, setBusy] = useState(false);
+  const set = (key, value) => setValues(v => ({ ...v, [key]: value }));
+  const submit = async e => {
+    e.preventDefault(); setBusy(true); setError('');
+    try {
+      const payload = {};
+      for (const [key,,type,required] of config.fields) {
+        const value = values[key];
+        if (required && type === 'checkbox' && !value) throw new Error('Please acknowledge the required declaration.');
+        if (required && type !== 'checkbox' && !String(value ?? '').trim()) throw new Error(`${key.replaceAll('_',' ')} is required.`);
+        if (type !== 'checkbox' && value !== '') payload[key] = value;
+        if (type === 'checkbox') payload[key] = value;
+      }
+      if (config.endpoint === '/api/businesses' && payload.established_year) payload.established_year = Number(payload.established_year);
+      const result = await api(config.endpoint, { method: 'POST', body: JSON.stringify(payload) });
+      await onCreated(result.data);
+      onClose();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const listFor = key => ({ business_id: data.businesses, requirement_id: data.requirements, opportunity_id: data.opportunities, counterparty_id: data.counterparties }[key] || []);
+  return <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="modal" role="dialog" aria-modal="true" aria-label={config.title}>
+    <div className="modal-head"><div><div className="eyebrow">EXIMNOVA</div><h2>{config.title}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close">×</button></div>
+    <form className="form modal-form" onSubmit={submit}>
+      {config.fields.map(([key,label,type,required,options]) => <label key={key} className={type==='textarea'?'field-wide':''}>{type === 'checkbox' ? <span className="check-row"><input type="checkbox" checked={!!values[key]} onChange={e=>set(key,e.target.checked)} />{label}{required && <b>*</b>}</span> : <>{label}{required && <b> *</b>}{type==='select' ? <select value={values[key]} onChange={e=>set(key,e.target.value)}><option value="">Select…</option>{(options || listFor(key).map(item=>item.id)).map((o,i)=>{const val=typeof o==='string'?o:o.id;const labelText=typeof o==='string'?o:optionLabel(o,key);return <option key={val||i} value={val}>{labelText}</option>})}</select> : type==='textarea' ? <textarea rows="4" value={values[key]} onChange={e=>set(key,e.target.value)} /> : <input type={type} value={values[key]} onChange={e=>set(key,e.target.value)} />}</>}</label>)}
+      <div className="modal-actions"><button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="primary-action" disabled={busy}>{busy ? 'Saving…' : 'Create record'}</button></div>
+    </form>
+  </div></div>;
+}
+
+function EvidenceModal({ onClose, onCreated, setError }) {
+  const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
+  const submit = async e => {
+    e.preventDefault(); if (!file) { setError('Select a file to upload.'); return; }
+    if (file.size > 25 * 1024 * 1024) { setError('File exceeds the 25MB limit.'); return; }
+    setBusy(true); setError('');
+    try {
+      const result = await api('/api/evidence/upload', { method: 'PUT', body: await file.arrayBuffer(), headers: { 'x-file-name': file.name, 'x-file-type': file.type || 'application/octet-stream' } });
+      await onCreated(result.data); onClose();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="modal" role="dialog" aria-modal="true" aria-label="Add Evidence">
+    <div className="modal-head"><div><div className="eyebrow">EVIDENCE</div><h2>Upload Evidence</h2></div><button className="icon-button" type="button" onClick={onClose}>×</button></div>
+    <form className="form modal-form" onSubmit={submit}><label className="upload-box"><span>{file ? file.name : 'Choose a document'}</span><small>Maximum 25MB. The API stores the file and records its SHA-256 integrity hash.</small><input type="file" onChange={e=>setFile(e.target.files?.[0] || null)} /></label><div className="modal-actions"><button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="primary-action" disabled={busy}>{busy ? 'Uploading…' : 'Upload evidence'}</button></div></form>
+  </div></div>;
+}
+
 function App() {
-  const [token, setToken] = useState(localStorage.getItem(STORAGE_KEY)); const [user, setUser] = useState(null); const [section, setSection] = useState('Overview'); const [data, setData] = useState(emptyData); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const [token, setToken] = useState(localStorage.getItem(STORAGE_KEY)); const [user, setUser] = useState(null); const [section, setSection] = useState('Overview'); const [data, setData] = useState(emptyData); const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [modal, setModal] = useState(null);
   const logout = useCallback(() => { localStorage.removeItem(STORAGE_KEY); setToken(null); setUser(null); setData(emptyData); setSection('Overview'); }, []);
   const loadData = useCallback(async () => {
     if (!token) return; setLoading(true); setError('');
@@ -51,26 +145,23 @@ function App() {
   useEffect(() => { if (!token) return; let active = true; api('/api/me').then(r => { if (active) setUser(r.user); }).catch(() => { if (active) logout(); }); return () => { active = false; }; }, [token, logout]);
   useEffect(() => { loadData(); }, [loadData]);
   const stats = useMemo(() => [['Businesses', data.businesses.length], ['Requirements', data.requirements.length], ['Opportunities', data.opportunities.length], ['Counterparties', data.counterparties.length], ['DealGate cases', data.dealgate.length], ['Verification cases', data.verification.length]], [data]);
-  if (!token) return <Auth onAuth={setToken} />;
-  const createBusiness = async () => {
-    const legal = prompt('Legal business name'); if (!legal) return;
-    try { await api('/api/businesses',{method:'POST',body:JSON.stringify({legal_name:legal,brand_name:legal,entity_type:'Proprietorship',established_year:new Date().getFullYear(),description:'Created from EximNova dashboard'})}); await loadData(); setSection('Businesses'); }
-    catch(e){setError(e.message)}
-  };
+  const openModal = name => setModal(name);
   const content = section === 'Overview' ? <>
     <div className="hero dashboard-hero"><div><div className="eyebrow">CONTROL CENTRE</div><h1>Good to see you, {user?.email?.split('@')[0] || 'trader'}.</h1><p>Manage structured trade opportunities from requirement through evidence and verification.</p></div><div className="hero-badge"><strong>API</strong><span>Connected</span></div></div>
     <div className="stats">{stats.map(([label,value])=><div className="stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
     <div className="section-card"><div className="card-head"><div><div className="eyebrow">WORKFLOW</div><h2>Next actions</h2></div></div><div className="action-grid">
-      <button className="action-card" onClick={()=>setSection('Businesses')}><b>Businesses</b><span>Open your business records and create a business profile.</span><em>Open →</em></button>
-      {['Requirements','Opportunities','DealGate','Evidence'].map((t,i)=>{const descriptions=['Capture a buyer or seller requirement.','Structure a requirement for market use.','Open preliminary screening.','Attach documents and preserve integrity metadata.']; return <button className="action-card" key={t} onClick={()=>setSection(t)}><b>{t}</b><span>{descriptions[i]}</span><em>Open →</em></button>;})}
+      {['Businesses','Requirements','Opportunities','Counterparties','DealGate','Evidence','Verification'].map(t=><button className="action-card" key={t} onClick={()=>setSection(t)}><b>{t}</b><span>{({Businesses:'Manage legal and trading entities.',Requirements:'Capture buyer and seller requirements.',Opportunities:'Structure market-facing trade opportunities.',Counterparties:'Maintain buyer, supplier and broker records.',DealGate:'Open preliminary trade screening cases.',Evidence:'Upload and preserve evidence integrity.',Verification:'Open structured verification cases.'})[t]}</span><em>Open →</em></button>)}
     </div></div>
-  </> : <Section name={section} data={data} onBusiness={createBusiness} onRefresh={loadData} />;
-  return <div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">E</span><span>EximNova</span></div><div className="side-caption">TRADE INTELLIGENCE</div><nav aria-label="EximNova navigation">{navItems.map(item=><button type="button" className={section===item?'active':''} onClick={()=>setSection(item)} key={item}>{item}</button>)}</nav><div className="side-bottom"><div className="user-chip"><span>{user?.email?.[0]?.toUpperCase()}</span><div><b>{user?.email}</b><small>{user?.role || 'user'}</small></div></div><button type="button" onClick={logout}>Sign out</button></div></aside><main className="main"><header className="topbar"><span>EximNova Engine v4.1 · Production</span><span className="live"><i/> API online</span></header>{error && <div className="error banner">{error}<button type="button" onClick={()=>setError('')}>Dismiss</button></div>}{loading && <div className="loading">Refreshing workspace…</div>}{content}</main></div>;
+  </> : <Section name={section} data={data} onAdd={()=>openModal(section)} onRefresh={loadData} setError={setError} />;
+  if (!token) return <Auth onAuth={setToken} />;
+  return <div className="app-shell"><aside className="sidebar"><Brand /><div className="side-caption">TRADE INTELLIGENCE</div><nav aria-label="EximNova navigation">{navItems.map(item=><button type="button" className={section===item?'active':''} onClick={()=>setSection(item)} key={item}>{item}</button>)}</nav><div className="side-bottom"><div className="user-chip"><span>{user?.email?.[0]?.toUpperCase()}</span><div><b>{user?.email}</b><small>{user?.role || 'user'}</small></div></div><button type="button" onClick={logout}>Sign out</button></div></aside><main className="main"><header className="topbar"><span>EximNova Engine v4.1 · Production</span><span className="live"><i/> API online</span></header>{error && <div className="error banner">{error}<button type="button" onClick={()=>setError('')}>Dismiss</button></div>}{loading && <div className="loading">Refreshing workspace…</div>}{content}</main>{modal && (modal === 'Evidence' ? <EvidenceModal onClose={()=>setModal(null)} onCreated={loadData} setError={setError} /> : <Modal config={formConfigs[modal]} data={data} onClose={()=>setModal(null)} onCreated={loadData} setError={setError} />)}</div>;
 }
 
-function Section({name,data,onBusiness,onRefresh}) {
+function Section({name,data,onAdd,onRefresh,setError}) {
   const map={Businesses:'businesses',Requirements:'requirements',Opportunities:'opportunities',Counterparties:'counterparties',DealGate:'dealgate',Evidence:'evidence',Verification:'verification'}; const rows=data[map[name]]||[];
-  return <div className="section-card page-card"><div className="card-head"><div><div className="eyebrow">{name.toUpperCase()}</div><h1>{name}</h1><p className="muted">Owner-scoped records from the EximNova API.</p></div><div className="card-actions"><button type="button" className="secondary" onClick={onRefresh}>Refresh</button>{name==='Businesses'&&<button type="button" className="primary-action" onClick={onBusiness}>+ Add business</button>}</div></div>{rows.length===0?<div className="empty"><strong>No records yet</strong><span>Records created through EximNova will appear here.</span></div>:<div className="records">{rows.map((r,i)=><div className="record" key={r.id||i}><div><strong>{r.brand_name||r.legal_name||r.title||r.product||r.name||r.scope||r.original_name||r.id}</strong><span>{r.status||r.side||r.category||r.created_at}</span></div><code>{r.id}</code></div>)}</div>}</div>;
+  const action={Businesses:'+ Add Business',Requirements:'+ Add Requirement',Opportunities:'+ Add Opportunity',Counterparties:'+ Add Counterparty',DealGate:'+ New DealGate Case',Evidence:'+ Add Evidence / Upload',Verification:'+ New Verification Case'}[name];
+  const primary={Businesses:'primary-action',Requirements:'primary-action',Opportunities:'primary-action',Counterparties:'primary-action',DealGate:'primary-action',Evidence:'primary-action',Verification:'primary-action'}[name];
+  return <div className="section-card page-card"><div className="card-head"><div><div className="eyebrow">{name.toUpperCase()}</div><h1>{name}</h1><p className="muted">Owner-scoped records from the EximNova API.</p></div><div className="card-actions"><button type="button" className="secondary" onClick={onRefresh}>Refresh</button><button type="button" className={primary} onClick={onAdd}>{action}</button></div></div>{rows.length===0?<div className="empty"><strong>No records yet</strong><span>Use the action above to create the first {name.toLowerCase().replace('dealgate','DealGate')} record.</span></div>:<div className="records">{rows.map((r,i)=><div className="record" key={r.id||i}><div><strong>{r.brand_name||r.legal_name||r.title||r.product||r.name||r.scope||r.original_name||r.id}</strong><span>{r.status||r.side||r.category||r.created_at}</span></div><code>{r.id}</code></div>)}</div>}</div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
