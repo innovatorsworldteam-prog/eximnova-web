@@ -4,7 +4,7 @@ Production frontend for EximNova, designed to run on Cloudflare and consume the 
 
 ## Production API
 
-`https://eximnova-api.innovatorsworldteam.workers.dev`
+`https://eximnova-engine-v41.innovatorsworldteam.workers.dev`
 
 ## Local development
 
